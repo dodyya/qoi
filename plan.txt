@@ -1,0 +1,8 @@
+1. Implement the decoding (displaying) of ppm P3 and P6 images.     -- Only decided to do P6 because screw you. Check!
+2. Make said decoding run automatically upon double clicking a .ppm -- Deferred to end of project
+3. Implement the decoding of .qoi images.                           -- Yayyy!
+4. Make said decoding run automatically upon double clicking a .qoi -- Hard. Deferred again.
+5. Implement encoding from P6
+6. Send someone a .qoi image                                        -- Done. Dad knew what it was.
+7. If I feel up for it, repeat the above for .pngs instead of .qoi
+8. Hook everything up to do png to qoi as a simple CLI tool
