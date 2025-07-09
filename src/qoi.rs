@@ -1,3 +1,47 @@
+#[derive(Debug, PartialEq)]
+enum Chunk {
+    Rgb { r: u8, g: u8, b: u8 },
+    Rgba { r: u8, g: u8, b: u8, a: u8 },
+    Index { loc: usize },
+    Diff { dr: i8, dg: i8, db: i8 },
+    Luma { dg: i8, dr_dg: i8, db_dg: i8 },
+    Run { length: u8 },
+}
+
+struct Interpreter<I>
+where
+    I: Iterator<Item = Chunk>,
+{
+    max_pix: usize,
+    pix_count: usize,
+    chunk_stream: I,
+    pixel: [u8; 4],
+    seen: [[u8; 4]; 64],
+}
+
+struct Parser<I>
+where
+    I: Iterator<Item = u8>,
+{
+    byte_stream: I,
+}
+
+struct Compresser<I>
+where
+    I: Iterator<Item = u8>,
+{
+    pix_stream: I,
+    pixel: [u8; 4],
+    seen: [[u8; 4]; 64],
+}
+
+struct Assembler<I>
+where
+    I: Iterator<Item = Chunk>,
+{
+    chunk_stream: I,
+}
+
 pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
     let mut stream = data.peekable();
     assert_eq!(stream.take_array(), [b'q', b'o', b'i', b'f']);
@@ -8,12 +52,14 @@ pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
     let colorspace: u8 = stream.next().unwrap();
     assert!(colorspace == 0 || colorspace == 1);
 
-    let chunk_stream = stream.parse();
-
     (
         width,
         height,
-        interpret(chunk_stream, (width * height * 4) as usize),
+        stream
+            .parse()
+            .interpret((width * height) as usize)
+            .flatten()
+            .collect(),
     )
 }
 
@@ -21,60 +67,31 @@ fn hash(c: [u8; 4]) -> usize {
     (c[0] as usize * 3 + c[1] as usize * 5 + c[2] as usize * 7 + c[3] as usize * 11) % 64
 }
 
-fn interpret(chunk_stream: impl Iterator<Item = Chunk>, len: usize) -> Vec<u8> {
-    let mut out: Vec<u8> = Vec::new();
-    let mut last_color = [0, 0, 0, 255];
-    let mut seen: [[u8; 4]; 64] = [[0, 0, 0, 0]; 64];
-    for chunk in chunk_stream {
-        if out.len() >= len {
-            break;
-        }
-        match chunk {
-            Chunk::Rgb { r, g, b } => {
-                last_color = [r, g, b, last_color[3]];
-            }
-            Chunk::Rgba { r, g, b, a } => {
-                last_color = [r, g, b, a];
-            }
-            Chunk::Index { loc } => {
-                last_color = seen[loc];
-            }
-            Chunk::Diff { dr, dg, db } => {
-                last_color = [
-                    last_color[0].wrapping_add_signed(dr),
-                    last_color[1].wrapping_add_signed(dg),
-                    last_color[2].wrapping_add_signed(db),
-                    last_color[3],
-                ];
-            }
-            Chunk::Luma { dg, dr_dg, db_dg } => {
-                last_color = [
-                    last_color[0].wrapping_add_signed(dr_dg + dg),
-                    last_color[1].wrapping_add_signed(dg),
-                    last_color[2].wrapping_add_signed(db_dg + dg),
-                    last_color[3],
-                ];
-            }
-            Chunk::Run { length } => {
-                for _ in 0..length - 1 {
-                    out.extend_from_slice(&last_color);
-                }
-            }
-        }
-        out.extend_from_slice(&last_color);
-        seen[hash(last_color)] = last_color;
-    }
-    return out;
-}
 //=============================================================//
-struct Parser<I>
-// Declaration of what a Parser is. Need to do this because it dynamically consumes byte_stream.
-// If it didn't, would just map or whatever
-where
-    I: Iterator<Item = u8>,
-{
-    byte_stream: I,
+
+trait Interpret {
+    fn interpret(self, max_pix: usize) -> Interpreter<Self>
+    where
+        Self: Sized,
+        Self: Iterator<Item = Chunk>; // Can only call .interpret() on chunk iters
 }
+
+impl<I> Interpret for I
+where
+    I: Iterator<Item = Chunk>,
+{
+    fn interpret(self, max_len: usize) -> Interpreter<I> {
+        Interpreter {
+            max_pix: max_len,
+            pix_count: 0,
+            chunk_stream: self,
+            pixel: [0, 0, 0, 255],
+            seen: [[0; 4]; 64],
+        } //Once called, create an Interpreter with all related state
+    }
+}
+
+//=============================================================//
 
 trait Parse {
     fn parse(self) -> Parser<Self>
@@ -89,6 +106,51 @@ where
 {
     fn parse(self) -> Parser<I> {
         Parser { byte_stream: self } //Once called, create a Parser with byte_stream as its only field
+    }
+}
+
+impl<I: Iterator<Item = Chunk>> Iterator for Interpreter<I> {
+    type Item = Vec<u8>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pix_count >= self.max_pix {
+            return None;
+        }
+        let mut out: Vec<u8> = vec![];
+        match self.chunk_stream.next()? {
+            Chunk::Rgb { r, g, b } => {
+                self.pixel = [r, g, b, self.pixel[3]];
+            }
+            Chunk::Rgba { r, g, b, a } => {
+                self.pixel = [r, g, b, a];
+            }
+            Chunk::Index { loc } => {
+                self.pixel = self.seen[loc];
+            }
+            Chunk::Diff { dr, dg, db } => {
+                self.pixel = [
+                    self.pixel[0].wrapping_add_signed(dr),
+                    self.pixel[1].wrapping_add_signed(dg),
+                    self.pixel[2].wrapping_add_signed(db),
+                    self.pixel[3],
+                ];
+            }
+            Chunk::Luma { dg, dr_dg, db_dg } => {
+                self.pixel = [
+                    self.pixel[0].wrapping_add_signed(dr_dg + dg),
+                    self.pixel[1].wrapping_add_signed(dg),
+                    self.pixel[2].wrapping_add_signed(db_dg + dg),
+                    self.pixel[3],
+                ];
+            }
+            Chunk::Run { length } => {
+                out.extend_from_slice(&self.pixel.repeat(length as usize - 1));
+                self.pix_count += length as usize - 1;
+            }
+        }
+        out.extend_from_slice(&self.pixel);
+        self.pix_count += 1;
+        self.seen[hash(self.pixel)] = self.pixel;
+        Some(out)
     }
 }
 
@@ -140,15 +202,6 @@ impl<I: Iterator<Item = u8>> Iterator for Parser<I> {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum Chunk {
-    Rgb { r: u8, g: u8, b: u8 },
-    Rgba { r: u8, g: u8, b: u8, a: u8 },
-    Index { loc: usize },
-    Diff { dr: i8, dg: i8, db: i8 },
-    Luma { dg: i8, dr_dg: i8, db_dg: i8 },
-    Run { length: u8 },
-}
 //=============================================================//
 
 trait TakeArray<T, const N: usize> {
@@ -168,4 +221,80 @@ where
     }
 }
 
-// pub fn encode_img(pixel_data:&[u8], )
+pub fn encode_img(pixels: Vec<u8>, width: u32, height: u32) -> Vec<u8> {
+    let mut header = vec![b'q', b'o', b'i', b'f'];
+    header.extend_from_slice(&width.to_be_bytes());
+    header.extend_from_slice(&height.to_be_bytes());
+    if pixels.chunks(4).all(|slice| *slice.last().unwrap() == 255) {
+        header.push(3); //RGB colorspace
+    } else {
+        header.push(4); //RGBA
+    }
+    header.push(1); // Not messing with sRGB yet
+
+    header
+        .into_iter()
+        .chain(pixels.into_iter().compress().assemble().flatten())
+        .chain([0, 0, 0, 0, 0, 0, 0, 1])
+        .collect()
+}
+
+//=============================================================//
+
+trait Compress
+where
+    Self: Sized,
+    Self: Iterator<Item = u8>,
+{
+    fn compress(self) -> Compresser<Self>;
+}
+
+impl<I> Compress for I
+where
+    I: Sized,
+    I: Iterator<Item = u8>,
+{
+    fn compress(self) -> Compresser<Self> {
+        Compresser {
+            pix_stream: self,
+            pixel: [0, 0, 0, 255],
+            seen: [[0; 4]; 64],
+        }
+    }
+}
+
+trait Assemble<I>
+where
+    I: Iterator<Item = Chunk>,
+{
+    fn assemble(self) -> Assembler<I>;
+}
+
+impl<I> Assemble<I> for I
+where
+    I: Iterator<Item = Chunk>,
+{
+    fn assemble(self) -> Assembler<I> {
+        Assembler { chunk_stream: self }
+    }
+}
+
+impl<I> Iterator for Assembler<I>
+where
+    I: Iterator<Item = Chunk>,
+{
+    type Item = Vec<u8>;
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        todo!();
+    }
+}
+
+impl<I> Iterator for Compresser<I>
+where
+    I: Iterator<Item = u8>,
+{
+    type Item = Chunk;
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        todo!()
+    }
+}

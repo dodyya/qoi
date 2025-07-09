@@ -6,3 +6,15 @@
 6. Send someone a .qoi image                                        -- Done. Dad knew what it was.
 7. If I feel up for it, repeat the above for .pngs instead of .qoi
 8. Hook everything up to do png to qoi as a simple CLI tool
+
+
+Decoding image:
+file data -> chunk data -> chunks -> pixel vector created constructively
+Data to chunks doesn't need lookahead, knows when to consume more
+Chunks to pixels doesn't need lookahead, but yields more than one pixel at a time. Ergo not done with iterator.
+
+Encoding image:
+pixel vector -> chunks -> chunk data -> sandwich with header and footer
+pixel vector to chunks probably isn't a pure iterator -- a run needs to greedily consume pixels, and it needs lookahead to know when to stop
+Thus it should be a slice instead of an iterator.
+Then, chunks to chunk data is pretty straightforward. Again, not a pure iterator since a chunk is a variable number of bytes.
