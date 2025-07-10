@@ -8,3 +8,4 @@ clap = {version = "4.5.40", features = ["derive"]}
 pixels = "0.13.0"
 winit = "0.28"
 winit_input_helper = "0.14"
+crc = "=3.2.1"

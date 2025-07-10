@@ -1,4 +1,5 @@
 use crate::gfx;
+use crate::png;
 use crate::ppm;
 use crate::qoi;
 use clap::Subcommand;
@@ -48,6 +49,8 @@ fn display(file_path: PathBuf) -> Result<(), String> {
         (width, height, pixel_buf) = qoi::parse_img(img_result.unwrap().into_iter());
     } else if file_path.extension().unwrap_or_default() == "ppm" {
         (width, height, pixel_buf) = ppm::parse_img(img_result.unwrap().into_iter());
+    } else if file_path.extension().unwrap_or_default() == "png" {
+        (width, height, pixel_buf) = png::parse_img(img_result.unwrap().into_iter());
     } else {
         return Err("Invalid file extension provided. Only .ppm and .qoi are supported".into());
     }

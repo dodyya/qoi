@@ -1,3 +1,4 @@
+use crate::util::TakeArray;
 use std::iter::Peekable;
 use std::slice::Chunks;
 #[derive(Debug, PartialEq, Clone)]
@@ -52,9 +53,9 @@ fn hash(c: [u8; 4]) -> usize {
 pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
     let mut stream = data;
 
-    assert_eq!(stream.take_array(), [b'q', b'o', b'i', b'f']);
-    let width = u32::from_be_bytes(stream.take_array());
-    let height = u32::from_be_bytes(stream.take_array());
+    assert_eq!(stream.take_array().unwrap(), [b'q', b'o', b'i', b'f']);
+    let width = u32::from_be_bytes(stream.take_array().unwrap());
+    let height = u32::from_be_bytes(stream.take_array().unwrap());
     let channels: u8 = stream.next().unwrap();
     assert!(channels == 3 || channels == 4);
     let colorspace: u8 = stream.next().unwrap();
@@ -168,23 +169,6 @@ where
 {
     fn assemble(self) -> Assembler<I> {
         Assembler { chunk_stream: self }
-    }
-}
-
-trait TakeArray<T, const N: usize> {
-    fn take_array(&mut self) -> [T; N];
-}
-
-impl<I, const N: usize> TakeArray<u8, N> for I
-where
-    I: Iterator<Item = u8>,
-{
-    fn take_array(&mut self) -> [u8; N] {
-        self.by_ref()
-            .take(N)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
     }
 }
 
