@@ -46,6 +46,28 @@ pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
     (width, height, pixel_buf.collect())
 }
 
+pub fn encode_img(width: u32, height: u32, pixels: Vec<u8>) -> Vec<u8> {
+    let mut out = vec![b'P', b'6', b' '];
+    out.extend_from_slice(&(width.to_string().as_bytes()));
+    out.push(b' ');
+    out.extend_from_slice(&(height.to_string().as_bytes()));
+    out.push(b' ');
+    out.extend_from_slice(&[b'2', b'5', b'5', b'\n']);
+
+    out.extend_from_slice(
+        &pixels
+            .chunks(4)
+            .filter_map(|chunk| {
+                let [r, g, b, _a]: [u8; 4] = chunk.try_into().ok()?;
+                Some([r, g, b])
+            })
+            .flatten()
+            .collect::<Vec<u8>>(),
+    );
+
+    out
+}
+
 struct SpaceN<I, T: Clone>
 where
     I: Iterator<Item = T>,

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = "4.5.40"
+clap = {version = "4.5.40", features = ["derive"]}
 pixels = "0.13.0"
 winit = "0.28"
 winit_input_helper = "0.14"
