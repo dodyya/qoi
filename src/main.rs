@@ -3,14 +3,22 @@ mod ppm;
 mod qoi;
 use std::env;
 use std::fs;
+use std::slice::Chunks;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::ControlFlow,
 };
 
-// const PATH: &str = "./pics/palette.ppm";
+const PATH: &str = "./pics/testcard.ppm";
 
 fn main() {
+    let img = load_img(PATH).into_iter();
+    let (width, height, pixel_buf): (u32, u32, Vec<u8>) = ppm::parse_img(img);
+
+    let img_qoi = qoi::encode_img(width, height, pixel_buf);
+
+    fs::write("./output/testcard.qoi", img_qoi);
+
     display_image();
 }
 
