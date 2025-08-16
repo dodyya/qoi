@@ -1,4 +1,5 @@
 use crate::gfx;
+use crate::img::RawImage;
 use crate::png;
 use crate::ppm;
 use crate::qoi;
@@ -24,6 +25,8 @@ pub enum Command {
         ///The target location
         output_path: PathBuf,
     },
+    /// Create a .qoi or .ppm image from a dimension-prefixed RGBA byte stream
+    Create { output_path: PathBuf },
 }
 
 impl Command {
@@ -34,6 +37,7 @@ impl Command {
                 file_path,
                 output_path,
             } => convert(file_path, output_path),
+            Command::Create { output_path } => create(output_path),
         }
     }
 }
@@ -44,11 +48,11 @@ fn display(file_path: PathBuf) -> Result<(), String> {
         return Err(e.to_string());
     }
 
-    let (width, height, pixel_buf): (u32, u32, Vec<u8>);
+    let RawImage(width, height, pixel_buf): RawImage;
     if file_path.extension().unwrap_or_default() == "qoi" {
-        (width, height, pixel_buf) = qoi::parse_img(img_result.unwrap().into_iter());
+        RawImage(width, height, pixel_buf) = qoi::parse_img(img_result.unwrap().into_iter());
     } else if file_path.extension().unwrap_or_default() == "ppm" {
-        (width, height, pixel_buf) = ppm::parse_img(img_result.unwrap().into_iter());
+        RawImage(width, height, pixel_buf) = ppm::parse_img(img_result.unwrap().into_iter());
     } else if file_path.extension().unwrap_or_default() == "png" {
         (width, height, pixel_buf) = png::parse_img(img_result.unwrap().into_iter());
     } else {
@@ -80,8 +84,8 @@ fn convert(file_path: PathBuf, output_path: PathBuf) -> Result<(), String> {
     if file_path.extension().unwrap_or_default() == "ppm"
         && output_path.extension().unwrap_or_default() == "qoi"
     {
-        let (width, height, pixels) = ppm::parse_img(img_result.unwrap().into_iter());
-        let write_result = fs::write(output_path, qoi::encode_img(width, height, pixels));
+        let img = ppm::parse_img(img_result.unwrap().into_iter());
+        let write_result = fs::write(output_path, qoi::encode_img(img));
         if let Err(e) = write_result {
             return Err(e.to_string());
         } else {
@@ -90,8 +94,8 @@ fn convert(file_path: PathBuf, output_path: PathBuf) -> Result<(), String> {
     } else if file_path.extension().unwrap_or_default() == "qoi"
         && output_path.extension().unwrap_or_default() == "ppm"
     {
-        let (width, height, pixels) = qoi::parse_img(img_result.unwrap().into_iter());
-        let write_result = fs::write(output_path, ppm::encode_img(width, height, pixels));
+        let img = qoi::parse_img(img_result.unwrap().into_iter());
+        let write_result = fs::write(output_path, ppm::encode_img(img));
         if let Err(e) = write_result {
             return Err(e.to_string());
         } else {
@@ -99,5 +103,29 @@ fn convert(file_path: PathBuf, output_path: PathBuf) -> Result<(), String> {
         }
     } else {
         return Err("Something went wrong with your file extensions.".into());
+    }
+}
+
+fn create(output_path: PathBuf) -> Result<(), String> {
+    use std::io::{self, Read};
+
+    let mut input = io::BufReader::new(io::stdin().lock());
+
+    let mut image_data = Vec::new();
+    if let Err(e) = input.read_to_end(&mut image_data) {
+        return Err(e.to_string());
+    }
+
+    let img = RawImage::from_bytes(&image_data)?;
+
+    match output_path
+        .extension()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap()
+    {
+        "qoi" => fs::write(output_path, qoi::encode_img(img)).map_err(|e| e.to_string()),
+        "ppm" => fs::write(output_path, ppm::encode_img(img)).map_err(|e| e.to_string()),
+        _ => Err("Unsupported output format.".into()),
     }
 }

@@ -1,3 +1,4 @@
+use crate::img::RawImage;
 use crate::util::TakeArray;
 use std::iter::Peekable;
 use std::slice::Chunks;
@@ -50,7 +51,7 @@ fn hash(c: [u8; 4]) -> usize {
 }
 
 ///Take in file data as an iterator and return (width, height, pixel data)
-pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
+pub fn parse_img(data: impl Iterator<Item = u8>) -> RawImage {
     let mut stream = data;
 
     assert_eq!(stream.take_array().unwrap(), [b'q', b'o', b'i', b'f']);
@@ -61,7 +62,7 @@ pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
     let colorspace: u8 = stream.next().unwrap();
     assert!(colorspace == 0 || colorspace == 1);
 
-    (
+    RawImage(
         width,
         height,
         stream
@@ -73,7 +74,8 @@ pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
 }
 
 ///Take in pixel and dimension data, return the .qoi file as a Vec<u8>
-pub fn encode_img(width: u32, height: u32, pixels: Vec<u8>) -> Vec<u8> {
+pub fn encode_img(img: RawImage) -> Vec<u8> {
+    let RawImage(width, height, pixels) = img;
     let mut header = vec![b'q', b'o', b'i', b'f'];
     header.extend_from_slice(&width.to_be_bytes());
     header.extend_from_slice(&height.to_be_bytes());

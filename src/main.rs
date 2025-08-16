@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod gfx;
+mod img;
 mod png;
 mod ppm;
 mod qoi;
@@ -14,8 +15,4 @@ use std::fs;
 fn main() {
     let command = Cli::parse();
     command.run();
-    // let file_path = "pics/dice.png";
-    // let img_result = fs::read(&file_path);
-
-    // let (width, height, pixel_buf) = png::parse_img(img_result.unwrap().into_iter());
 }

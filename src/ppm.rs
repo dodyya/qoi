@@ -1,3 +1,4 @@
+use crate::img::RawImage;
 use std::iter::Peekable;
 fn consume_ascii_whitespace(stream: &mut std::iter::Peekable<impl Iterator<Item = u8>>) {
     while stream
@@ -17,7 +18,7 @@ fn consume_ascii_dec(stream: &mut std::iter::Peekable<impl Iterator<Item = u8>>)
     buffer
 }
 
-pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
+pub fn parse_img(data: impl Iterator<Item = u8>) -> RawImage {
     let mut stream = data.peekable();
     assert_eq!(stream.next(), Some(b'P'));
     assert_eq!(stream.next(), Some(b'6'));
@@ -43,10 +44,11 @@ pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
     //Stream should now be at the start of the image data
 
     let pixel_buf = stream.space_n(255, 3);
-    (width, height, pixel_buf.collect())
+    RawImage(width, height, pixel_buf.collect())
 }
 
-pub fn encode_img(width: u32, height: u32, pixels: Vec<u8>) -> Vec<u8> {
+pub fn encode_img(img: RawImage) -> Vec<u8> {
+    let RawImage(width, height, pixels) = img;
     let mut out = vec![b'P', b'6', b' '];
     out.extend_from_slice(&(width.to_string().as_bytes()));
     out.push(b' ');
