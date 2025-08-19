@@ -1,6 +1,6 @@
 # qoi-rs
 
-[demo image](demo.png)
+![demo image](demo.png)
 
 This project is a Rust implementation of the QOI (Quite OK Image) format, designed as a learning exercise to explore idiomatic Rust, iterators, and the `clap` library for building command-line interfaces. This essentially served as a continuation of the `pngme` project tutorial by jrdngr. [https://github.com/jrdngr/pngme]
 
