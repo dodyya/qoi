@@ -15,7 +15,7 @@ pub struct Gfx {
 
 impl Gfx {
     pub fn new(width: u32, height: u32, title: &str) -> (Self, EventLoop<()>) {
-        let pixel_scale = min(1000 / height, 1500 / width);
+        let pixel_scale = min(1000 / height, 1500 / width).max(1);
         let event_loop = EventLoop::new();
         // physical window size = virtual size × scale
         let physical_size = PhysicalSize::new(width * pixel_scale, height * pixel_scale);

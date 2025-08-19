@@ -10,12 +10,15 @@ impl RawImage {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 8 {
+            return Err("Invalid image data".into());
+        }
         let width = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
         let height = u32::from_be_bytes(bytes[4..8].try_into().unwrap());
-        if bytes.len() != width as usize * height as usize * 4 + 8 {
+        if bytes.len() < width as usize * height as usize * 4 + 8 {
             return Err("Image dimensions conflict with byte stream length".into());
         }
-        let data = bytes[8..width as usize * height as usize * 4].to_vec();
+        let data = bytes[8..width as usize * height as usize * 4 + 8].to_vec();
         Ok(RawImage(width, height, data))
     }
 }

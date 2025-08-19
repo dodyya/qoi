@@ -1,3 +1,4 @@
+use crate::img::RawImage;
 use crate::util::{TakeArray, TakeVec};
 use std::iter::Peekable;
 
@@ -155,36 +156,80 @@ pub fn as_bytes(chunks: Vec<Chunk>) -> Vec<u8> {
         .collect()
 }
 
-pub fn parse_img(data: impl Iterator<Item = u8>) -> (u32, u32, Vec<u8>) {
-    let mut stream = data.peekable();
-    assert_eq!(stream.take_array().unwrap(), STANDARD_HEADER);
+pub fn parse_img(data: impl Iterator<Item = u8>) -> RawImage {
+    use std::io::Cursor;
+    
+    let bytes: Vec<u8> = data.collect();
+    let cursor = Cursor::new(bytes);
+    
+    let decoder = png::Decoder::new(cursor);
+    let mut reader = decoder.read_info().unwrap();
+    
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    
+    let width = info.width;
+    let height = info.height;
+    
+    let rgba_buf = match info.color_type {
+        png::ColorType::Rgba => buf,
+        png::ColorType::Rgb => {
+            let mut rgba_buf = Vec::with_capacity(buf.len() * 4 / 3);
+            for chunk in buf.chunks(3) {
+                rgba_buf.extend_from_slice(chunk);
+                rgba_buf.push(255);
+            }
+            rgba_buf
+        }
+        png::ColorType::Grayscale => {
+            let mut rgba_buf = Vec::with_capacity(buf.len() * 4);
+            for &gray in &buf {
+                rgba_buf.extend_from_slice(&[gray, gray, gray, 255]);
+            }
+            rgba_buf
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut rgba_buf = Vec::with_capacity(buf.len() * 2);
+            for chunk in buf.chunks(2) {
+                let gray = chunk[0];
+                let alpha = chunk[1];
+                rgba_buf.extend_from_slice(&[gray, gray, gray, alpha]);
+            }
+            rgba_buf
+        }
+        _ => panic!("Unsupported PNG color type"),
+    };
+    
+    RawImage(width, height, rgba_buf)
+}
 
-    let mut chunks: Vec<Chunk> = stream.parse().collect(); //CRC validation all happens here
-    for c in &chunks {
-        println!("{}", c);
+pub fn encode_img(img: RawImage) -> Vec<u8> {
+    use std::io::Cursor;
+    
+    let RawImage(width, height, mut rgba_data) = img;
+    
+    let expected_len = (width * height * 4) as usize;
+    if rgba_data.len() != expected_len {
+        println!("Warning: RGBA data length mismatch. Expected: {}, Actual: {}", expected_len, rgba_data.len());
+        if rgba_data.len() < expected_len {
+            rgba_data.resize(expected_len, 255);
+        } else {
+            rgba_data.truncate(expected_len);
+        }
     }
-
-    let header_chunk = chunks.first().unwrap();
-    assert_eq!(header_chunk.chunk_type().to_string(), "IHDR");
-    assert!(&chunks.iter().any(|c| c.chunk_type().to_string() == "IDAT"));
-    assert_eq!(&chunks.last().unwrap().chunk_type().to_string(), "IEND");
-    let width = u32::from_be_bytes(header_chunk.data()[0..4].try_into().unwrap());
-    let height = u32::from_be_bytes(header_chunk.data()[4..8].try_into().unwrap());
-    let bit_depth = header_chunk.data()[8];
-    let color_type = header_chunk.data()[9];
-    let compression_method = header_chunk.data()[10];
-    let filter_method = header_chunk.data()[11];
-    let interlace_method = header_chunk.data()[12];
-
-    println!("width: {}", width);
-    println!("height: {}", height);
-    println!("bit depth: {}", bit_depth); // Number of bits per pallette index OR bits in color value
-    println!("color type: {}", color_type); // 
-    println!("compression method: {}", compression_method);
-    println!("filter method: {}", filter_method);
-    println!("interlace method: {}", interlace_method);
-
-    (width, height, vec![])
+    
+    let mut buf = Vec::new();
+    let cursor = Cursor::new(&mut buf);
+    
+    let mut encoder = png::Encoder::new(cursor, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(&rgba_data).unwrap();
+    writer.finish().unwrap();
+    
+    buf
 }
 
 ///Parse file data into a stream of chunks

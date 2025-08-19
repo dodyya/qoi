@@ -18,48 +18,76 @@ use winit::{
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Display a .ppm or .qoi image
-    Display { file_path: PathBuf },
-    /// Convert a .qoi to a .ppm or vice versa
+    Open { file_path: PathBuf },
+    /// Convert between image formats (.qoi, .ppm, .png)
     Convert {
-        file_path: PathBuf,
-        ///The target location
-        output_path: PathBuf,
+        files: Vec<PathBuf>,
+        #[arg(short, long, help = "Output file path (for single file conversion)")]
+        output: Option<PathBuf>,
+        #[arg(
+            short = 't',
+            long = "target",
+            help = "Target file extension for batch conversion (qoi, ppm, png)"
+        )]
+        target_extension: Option<String>,
     },
-    /// Create a .qoi or .ppm image from a dimension-prefixed RGBA byte stream
-    Create { output_path: PathBuf },
+    /// Create a .qoi or .ppm image from a dimension-prefixed RGBA byte stream stdin
+    Write {
+        output_path: PathBuf,
+        #[arg(short, long, default_value_t = false)]
+        forever: bool,
+        #[arg(short, long, default_value_t = true)]
+        numbered: bool,
+    },
+    /// View a dimension-prefixed RGBA byte stream in stdin
+    View,
 }
 
 impl Command {
     pub fn run(self) -> Result<(), String> {
         match self {
-            Command::Display { file_path } => display(file_path),
+            Command::Open { file_path } => open(&file_path),
             Command::Convert {
-                file_path,
+                files,
+                output,
+                target_extension,
+            } => convert(&files, output.as_ref(), target_extension.as_ref()),
+            Command::Write {
                 output_path,
-            } => convert(file_path, output_path),
-            Command::Create { output_path } => create(output_path),
+                forever,
+                numbered,
+            } => write(forever, numbered, &output_path),
+            Command::View => view(),
         }
     }
 }
 
-fn display(file_path: PathBuf) -> Result<(), String> {
+fn open(file_path: &PathBuf) -> Result<(), String> {
     let img_result = fs::read(&file_path);
     if let Err(e) = img_result {
         return Err(e.to_string());
     }
 
-    let RawImage(width, height, pixel_buf): RawImage;
+    let img: RawImage;
     if file_path.extension().unwrap_or_default() == "qoi" {
-        RawImage(width, height, pixel_buf) = qoi::parse_img(img_result.unwrap().into_iter());
+        img = qoi::parse_img(img_result.unwrap().into_iter());
     } else if file_path.extension().unwrap_or_default() == "ppm" {
-        RawImage(width, height, pixel_buf) = ppm::parse_img(img_result.unwrap().into_iter());
+        img = ppm::parse_img(img_result.unwrap().into_iter());
     } else if file_path.extension().unwrap_or_default() == "png" {
-        (width, height, pixel_buf) = png::parse_img(img_result.unwrap().into_iter());
+        img = png::parse_img(img_result.unwrap().into_iter());
     } else {
-        return Err("Invalid file extension provided. Only .ppm and .qoi are supported".into());
+        return Err(
+            "Invalid file extension provided. Only .ppm, .qoi, and .png are supported".into(),
+        );
     }
 
-    let (mut gfx, event_loop) = gfx::Gfx::new(width, height, file_path.to_str().unwrap());
+    display(img, file_path.to_str().unwrap());
+    Ok(())
+}
+
+fn display(img: RawImage, title: &str) {
+    let RawImage(width, height, pixel_buf) = img;
+    let (mut gfx, event_loop) = gfx::Gfx::new(width, height, title);
     gfx.display(&pixel_buf);
     gfx.render();
     event_loop.run(move |event, _, control_flow| {
@@ -75,57 +103,172 @@ fn display(file_path: PathBuf) -> Result<(), String> {
     });
 }
 
-fn convert(file_path: PathBuf, output_path: PathBuf) -> Result<(), String> {
+fn convert(
+    files: &[PathBuf],
+    output: Option<&PathBuf>,
+    target_extension: Option<&String>,
+) -> Result<(), String> {
+    if files.len() < 1 {
+        return Err("At least one input file is required".into());
+    }
+
+    if files.len() == 1 && output.is_some() {
+        return convert_single(&files[0], output.unwrap());
+    }
+
+    if files.len() == 2 && output.is_some() {
+        return convert_single(&files[0], output.unwrap());
+    }
+
+    if files.len() >= 3 {
+        let first_ext = files[0].extension().unwrap_or_default();
+        for file in files.iter() {
+            let ext = file.extension().unwrap_or_default();
+            assert_eq!(
+                ext, first_ext,
+                "All input files must have the same extension"
+            );
+        }
+
+        let target_ext = if let Some(target) = target_extension {
+            target.as_str()
+        } else {
+            match first_ext.to_str().unwrap_or("") {
+                "ppm" => "qoi",
+                "qoi" => "ppm",
+                "png" => "qoi",
+                _ => "ppm",
+            }
+        };
+
+        for file_path in files {
+            let output_path = file_path.with_extension(target_ext);
+            convert_single(file_path, &output_path)?;
+        }
+        return Ok(());
+    }
+
+    Err("Invalid arguments: provide either 1-2 files with --output, or 3+ files with same extension".into())
+}
+
+fn convert_single(file_path: &PathBuf, output_path: &PathBuf) -> Result<(), String> {
     let img_result = fs::read(&file_path);
     if let Err(e) = img_result {
         return Err(e.to_string());
     }
 
-    if file_path.extension().unwrap_or_default() == "ppm"
-        && output_path.extension().unwrap_or_default() == "qoi"
-    {
-        let img = ppm::parse_img(img_result.unwrap().into_iter());
-        let write_result = fs::write(output_path, qoi::encode_img(img));
-        if let Err(e) = write_result {
-            return Err(e.to_string());
-        } else {
-            return Ok(());
-        }
-    } else if file_path.extension().unwrap_or_default() == "qoi"
-        && output_path.extension().unwrap_or_default() == "ppm"
-    {
-        let img = qoi::parse_img(img_result.unwrap().into_iter());
-        let write_result = fs::write(output_path, ppm::encode_img(img));
-        if let Err(e) = write_result {
-            return Err(e.to_string());
-        } else {
-            return Ok(());
-        }
-    } else {
-        return Err("Something went wrong with your file extensions.".into());
-    }
-}
-
-fn create(output_path: PathBuf) -> Result<(), String> {
-    use std::io::{self, Read};
-
-    let mut input = io::BufReader::new(io::stdin().lock());
-
-    let mut image_data = Vec::new();
-    if let Err(e) = input.read_to_end(&mut image_data) {
-        return Err(e.to_string());
-    }
-
-    let img = RawImage::from_bytes(&image_data)?;
-
-    match output_path
+    let input_ext = file_path
         .extension()
         .unwrap_or_default()
         .to_str()
-        .unwrap()
-    {
-        "qoi" => fs::write(output_path, qoi::encode_img(img)).map_err(|e| e.to_string()),
-        "ppm" => fs::write(output_path, ppm::encode_img(img)).map_err(|e| e.to_string()),
-        _ => Err("Unsupported output format.".into()),
+        .unwrap_or("");
+    let output_ext = output_path
+        .extension()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap_or("");
+
+    let img = match input_ext {
+        "ppm" => ppm::parse_img(img_result.unwrap().into_iter()),
+        "qoi" => qoi::parse_img(img_result.unwrap().into_iter()),
+        "png" => png::parse_img(img_result.unwrap().into_iter()),
+        _ => return Err("Unsupported input format".into()),
+    };
+
+    let encoded_data = match output_ext {
+        "ppm" => ppm::encode_img(img),
+        "qoi" => qoi::encode_img(img),
+        "png" => png::encode_img(img),
+        _ => return Err("Unsupported output format".into()),
+    };
+
+    fs::write(output_path, encoded_data).map_err(|e| e.to_string())
+}
+
+fn write(forever: bool, numbered: bool, output_path: &PathBuf) -> Result<(), String> {
+    use std::io::{self, Read};
+
+    let mut input = io::BufReader::new(io::stdin());
+    let extension = output_path
+        .extension()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap();
+
+    let path = output_path.parent().ok_or("No parent directory")?;
+    let stem = output_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap();
+
+    let mut n = 0;
+    loop {
+        n += 1;
+        let mut w_buf = [0u8; 4];
+        let mut h_buf = [0u8; 4];
+        input.read_exact(&mut w_buf);
+        input.read_exact(&mut h_buf);
+        let w = u32::from_be_bytes(w_buf);
+        let h = u32::from_be_bytes(h_buf);
+        let image_size = (w as usize)
+            .checked_mul(h as usize)
+            .and_then(|s| s.checked_mul(4))
+            .ok_or("Image dimensions too large")?;
+        let mut image_data = vec![0u8; image_size];
+        if let Err(e) = input.read_exact(&mut image_data) {
+            return Err(e.to_string());
+        }
+
+        let img = RawImage(w, h, image_data);
+
+        let out_path = if numbered {
+            PathBuf::from(format!(
+                "{}/{}{:0>5}.{}",
+                path.display(),
+                stem,
+                n,
+                extension
+            ))
+        } else {
+            PathBuf::from(format!("{}/{}.{}", path.display(), stem, extension))
+        };
+
+        let result = match extension {
+            "qoi" => fs::write(out_path, qoi::encode_img(img)).map_err(|e| e.to_string()),
+            "ppm" => fs::write(out_path, ppm::encode_img(img)).map_err(|e| e.to_string()),
+            "png" => fs::write(out_path, png::encode_img(img)).map_err(|e| e.to_string()),
+            _ => Err("Unsupported output format.".into()),
+        };
+
+        if let Err(e) = result {
+            return Err(e);
+        }
+
+        if !forever {
+            return Ok(());
+        }
     }
+}
+
+fn view() -> Result<(), String> {
+    use std::io::{self, Read};
+
+    let mut input = io::BufReader::new(io::stdin());
+
+    let mut w_buf = [0u8; 4];
+    let mut h_buf = [0u8; 4];
+    input.read_exact(&mut w_buf);
+    input.read_exact(&mut h_buf);
+    let w = u32::from_be_bytes(w_buf);
+    let h = u32::from_be_bytes(h_buf);
+    let mut image_data = vec![0u8; (w * h * 4) as usize];
+    if let Err(e) = input.read_exact(&mut image_data) {
+        return Err(e.to_string());
+    }
+
+    let img = RawImage(w, h, image_data);
+
+    display(img, "Piped image");
+    Ok(())
 }
