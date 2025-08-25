@@ -47,6 +47,7 @@ Example commands:
 
 Two more commands are omitted due to their limited functionality - 'qoi write' and 'qoi view' work with stdin instead of a file, and take in a dimension-prefixed pixel buffer as input. Write writes to a .ppm/.png/.qoi file, with the possibility to specify -f to write several images from the same stream and -n to number them sequentially. View simply displays what it reads in a winit window. Both were used in conjunction with my `pcls` project to manually record a run of the simulation.
 
-## Conclusion
+## Takeaways
 
-This project was a valuable learning experience in Rust iterators and building simple command-line tools. As with some other projects, working on this in the absence of internet access allowed me to derive a lot of insights into iterators, and specifically their signatures and working with streams of data in Rust. I'm sure there's a more advanced way of piping data across layers of functionality than assembling u8 slices, but the zero-copy approach has been interesting to implement.
+This project allowed me to get very comfortable with functional programming patterns and working with images. As with some other projects, working on this in the absence of internet access allowed me to give a solid first attempt, and then verify that the design patterns I came up with were similar to those already out there. 
+Note: I'm sure there's a more advanced way of piping data across layers of functionality (especially through iterators that yield variable amounts of data) than assembling u8 slices, but the zero-copy approach has been interesting to implement.
